@@ -5,6 +5,7 @@ import { ResultsTable } from './components/ResultsTable'
 import { Sidebar } from './components/Sidebar'
 import { ProgressBar } from './components/ProgressBar'
 import { RoomDetail } from './components/RoomDetail'
+import { GooglePanel } from './components/GooglePanel'
 import { Icon } from './components/Icon'
 
 /** Khoang cach 2 toa do (met) - dung de gom "phong cung toa". */
@@ -17,7 +18,7 @@ function distM(a: { lat: any; lng: any }, b: { lat: any; lng: any }): number {
   return 2 * R * Math.asin(Math.sqrt(x))
 }
 
-type View = 'scrape' | 'saved'
+type View = 'scrape' | 'saved' | 'google'
 
 export default function App() {
   const [view, setView] = useState<View>('scrape')
@@ -160,11 +161,13 @@ export default function App() {
       <main className="content">
         <header className="topbar">
           <div>
-            <h1>{view === 'scrape' ? 'Cào phòng Airbnb' : 'Phiên đã lưu'}</h1>
+            <h1>{view === 'scrape' ? 'Cào phòng Airbnb' : view === 'saved' ? 'Phiên đã lưu' : 'Lưu lên Google Sheet & Drive'}</h1>
             <p className="sub">
               {view === 'scrape'
                 ? 'Theo địa điểm · loại thuê · ngày · khoảng giá — phân trang tự động'
-                : 'Dữ liệu lưu trong SQLite cục bộ'}
+                : view === 'saved'
+                  ? 'Dữ liệu lưu trong SQLite cục bộ'
+                  : 'Ghi bảng đầy đủ vào Sheet + upload ảnh từng phòng lên Drive'}
             </p>
           </div>
           {view === 'scrape' && (
@@ -205,8 +208,10 @@ export default function App() {
 
             <ResultsTable rooms={rooms} onOpen={(u) => window.api.openExternal(u)} onSelect={openDetail} />
           </>
-        ) : (
+        ) : view === 'saved' ? (
           <SavedView sessions={sessions} onOpen={openSession} onDelete={removeSession} />
+        ) : (
+          <GooglePanel rooms={rooms} location={config.location} />
         )}
       </main>
 

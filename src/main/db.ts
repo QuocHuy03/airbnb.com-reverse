@@ -80,6 +80,15 @@ export function saveDriverConfig(config: any): void {
   setSetting('driver_config', JSON.stringify(config))
 }
 
+/* ---------- generic JSON section store (oauth token, google config) ---------- */
+export function getSection(key: string): any {
+  const v = getSetting(key)
+  return v ? JSON.parse(v) : null
+}
+export function setSection(key: string, data: any): void {
+  setSetting(key, JSON.stringify(data))
+}
+
 /* ---------- sessions + rooms ---------- */
 export function saveSession(config: any, rooms: RoomRow[]): number {
   const insSession = db.prepare('INSERT INTO sessions(location,config,room_count) VALUES(?,?,?)')

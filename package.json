@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^11.8.1",
+    "google-auth-library": "^9.15.1",
+    "googleapis": "^144.0.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",

@@ -2,10 +2,12 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
 import {
-  initDb, getDriverConfig, saveDriverConfig,
+  initDb, getDriverConfig, saveDriverConfig, getSection, setSection,
   saveSession, listSessions, getRooms, deleteSession, RoomRow
 } from './db'
 import { runScrape, cancelScrape, runDetail, ScrapeEvent } from './scraper'
+import { loginOAuth, getOAuthStatus } from './oauth'
+import { runGoogle, GoogleConfig } from './google'
 
 let win: BrowserWindow | null = null
 
@@ -92,6 +94,35 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('shell:open', (_e, url: string) => { shell.openExternal(url); return true })
+
+  // ----- Google config persistence (reuse settings table) -----
+  ipcMain.handle('settings:load', (_e, section: string) => getSection(`gcfg::${section}`))
+  ipcMain.handle('settings:save', (_e, section: string, data: any) => { setSection(`gcfg::${section}`, data); return { ok: true } })
+
+  // ----- Google: pick JSON, OAuth, run -----
+  ipcMain.handle('dialog:pickJson', async () => {
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Chọn file JSON', filters: [{ name: 'JSON', extensions: ['json'] }], properties: ['openFile']
+    })
+    if (res.canceled || !res.filePaths[0]) return { ok: false }
+    return { ok: true, path: res.filePaths[0] }
+  })
+  ipcMain.handle('google:oauthStatus', (_e, clientPath: string) => getOAuthStatus(clientPath))
+  ipcMain.handle('google:login', async (_e, clientPath: string) => {
+    try { return await loginOAuth(clientPath) }
+    catch (e: any) { return { ok: false, error: e?.message || String(e) } }
+  })
+  ipcMain.handle('google:run', async (e, cfg: GoogleConfig) => {
+    const sender = e.sender
+    try {
+      const r = await runGoogle(cfg, (stage, done, total) => {
+        if (!sender.isDestroyed()) sender.send('google:progress', { stage, done, total })
+      })
+      return r
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) }
+    }
+  })
 }
 
 app.whenReady().then(() => {

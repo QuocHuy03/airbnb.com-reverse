@@ -20,7 +20,19 @@ const api = {
   deleteSession: (sid: number) => ipcRenderer.invoke('db:deleteSession', sid),
   // export / misc
   exportCsv: (rooms: any[], suggested: string) => ipcRenderer.invoke('export:csv', rooms, suggested),
-  openExternal: (url: string) => ipcRenderer.invoke('shell:open', url)
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),
+  // Google Sheets / Drive
+  pickJson: () => ipcRenderer.invoke('dialog:pickJson'),
+  googleLogin: (clientPath: string) => ipcRenderer.invoke('google:login', clientPath),
+  oauthStatus: (clientPath: string) => ipcRenderer.invoke('google:oauthStatus', clientPath),
+  loadSettings: (section: string) => ipcRenderer.invoke('settings:load', section),
+  saveSettings: (section: string, data: any) => ipcRenderer.invoke('settings:save', section, data),
+  runGoogle: (cfg: any) => ipcRenderer.invoke('google:run', cfg),
+  onGoogleProgress: (cb: (p: { stage: string; done: number; total: number }) => void) => {
+    const listener = (_e: IpcRendererEvent, p: any) => cb(p)
+    ipcRenderer.on('google:progress', listener)
+    return () => ipcRenderer.removeListener('google:progress', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)
