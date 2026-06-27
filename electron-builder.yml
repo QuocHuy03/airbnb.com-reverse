@@ -1,0 +1,19 @@
+appId: com.airbnbvn.scraper
+productName: Airbnb VN Scraper
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: python
+    to: python
+    filter:
+      - '**/*'
+      - '!**/__pycache__/**'
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

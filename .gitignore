@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+*.log
+__pycache__/
+*.pyc
+*.csv
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+.devlog.txt
+.claude/
