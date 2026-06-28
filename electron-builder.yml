@@ -7,11 +7,10 @@ files:
   - out/**/*
   - package.json
 extraResources:
-  - from: python
-    to: python
+  - from: python-dist
+    to: python-dist
     filter:
-      - '**/*'
-      - '!**/__pycache__/**'
+      - '*.exe'
 win:
   target: nsis
 nsis:

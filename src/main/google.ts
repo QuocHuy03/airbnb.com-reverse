@@ -22,7 +22,7 @@ const SCOPES_SA = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.
 
 // Header cot Sheet (tieng Viet, day du). Cot "folder ảnh (Drive)" duoc dien sau khi upload.
 const SHEET_HEADERS = [
-  'địa điểm', 'tên phòng', 'room_id', 'giá', 'giá (mô tả)', 'đánh giá', 'số đánh giá',
+  'địa điểm', 'tên phòng', 'phòng ngủ', 'loại giường', 'room_id', 'giá', 'giá (mô tả)', 'đánh giá', 'số đánh giá',
   'toạ độ', 'ảnh đại diện', 'folder ảnh (Drive)', 'link phòng',
   'tên chủ nhà', 'id chủ nhà', 'link chủ nhà', 'sđt chủ'
 ]
@@ -31,6 +31,8 @@ function rowToValues(r: any, location: string): string[] {
   return [
     location || '',
     r.name || '',
+    r._bedroom_name || '',
+    r._bedroom_beds || '',
     r.room_id || '',
     r.price || '',
     r.price_label || '',
@@ -228,7 +230,23 @@ async function writeSheet(
   onProgress: (stage: string, done: number, total: number) => void
 ) {
   const header = [...SHEET_HEADERS]
-  const dataRows = rows.map((r) => rowToValues(r, location))
+
+  // expand listing co sleeping_arrangements thanh: header toa + sub-row moi phong ngu
+  const dataRows: string[][] = []
+  const buildingHeaderRowIndices: number[] = []
+  for (const r of rows) {
+    const sa: { title: string; beds: string[] }[] = r.sleeping_arrangements || []
+    if (sa.length > 0) {
+      buildingHeaderRowIndices.push(dataRows.length)
+      dataRows.push([`${r.name || r.room_id} (${sa.length} phòng)`, ...Array(SHEET_HEADERS.length - 1).fill('')])
+      for (const br of sa) {
+        dataRows.push(rowToValues({ ...r, _bedroom_name: br.title, _bedroom_beds: br.beds.join(', ') }, location))
+      }
+    } else {
+      dataRows.push(rowToValues(r, location))
+    }
+  }
+
   const tabId = await call('lấy tab', () => getSheetTabId(sheets, spreadsheetId, tabTitle))
 
   const existing = await call('đọc dòng hiện có', () =>
@@ -255,26 +273,80 @@ async function writeSheet(
     onProgress('Sheets: ghi dòng', Math.min(i + chunk.length, dataRows.length), dataRows.length)
   }
 
+  const formatRequests: any[] = []
   if (wroteHeader) {
-    await call('định dạng header', () => sheets.spreadsheets.batchUpdate({
-      spreadsheetId, requestBody: { requests: [
-        {
-          repeatCell: {
-            range: { sheetId: tabId, startRowIndex: 0, endRowIndex: 1 },
-            cell: { userEnteredFormat: { backgroundColor: hexToRgb('FF385C'), textFormat: { bold: true, foregroundColor: hexToRgb('FFFFFF') } } },
-            fields: 'userEnteredFormat(backgroundColor,textFormat)'
-          }
-        },
-        {
-          updateSheetProperties: {
-            properties: { sheetId: tabId, gridProperties: { frozenRowCount: 1 } },
-            fields: 'gridProperties.frozenRowCount'
-          }
+    formatRequests.push(
+      {
+        repeatCell: {
+          range: { sheetId: tabId, startRowIndex: 0, endRowIndex: 1 },
+          cell: { userEnteredFormat: { backgroundColor: hexToRgb('FF385C'), textFormat: { bold: true, foregroundColor: hexToRgb('FFFFFF') } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)'
         }
-      ] }
+      },
+      {
+        updateSheetProperties: {
+          properties: { sheetId: tabId, gridProperties: { frozenRowCount: 1 } },
+          fields: 'gridProperties.frozenRowCount'
+        }
+      }
+    )
+  }
+  // format building header rows (header row = 0, data starts at 1)
+  for (const ri of buildingHeaderRowIndices) {
+    const sheetRow = 1 + ri
+    formatRequests.push(
+      {
+        mergeCells: {
+          range: { sheetId: tabId, startRowIndex: sheetRow, endRowIndex: sheetRow + 1, startColumnIndex: 0, endColumnIndex: SHEET_HEADERS.length },
+          mergeType: 'MERGE_ALL'
+        }
+      },
+      {
+        repeatCell: {
+          range: { sheetId: tabId, startRowIndex: sheetRow, endRowIndex: sheetRow + 1 },
+          cell: { userEnteredFormat: { backgroundColor: hexToRgb('1E2333'), textFormat: { bold: true, foregroundColor: hexToRgb('FF385C'), fontSize: 11 } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)'
+        }
+      }
+    )
+  }
+  if (formatRequests.length) {
+    await call('định dạng', () => sheets.spreadsheets.batchUpdate({
+      spreadsheetId, requestBody: { requests: formatRequests }
     }))
   }
   void SHEET_BATCH_REQS
+}
+
+// ---------------------------------------------------------------- Group rooms by building (proximity ≤60m)
+function distM(a: any, b: any): number {
+  const la1 = +a.lat, lo1 = +a.lng, la2 = +b.lat, lo2 = +b.lng
+  if (!la1 || !lo1 || !la2 || !lo2) return Infinity
+  const R = 6371000, rad = Math.PI / 180
+  const dLa = (la2 - la1) * rad, dLo = (lo2 - lo1) * rad
+  const x = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * rad) * Math.cos(la2 * rad) * Math.sin(dLo / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(x))
+}
+
+function groupByBuilding(rows: any[]): { buildingName: string | null; rooms: any[] }[] {
+  const assigned = new Array(rows.length).fill(false)
+  const groups: { buildingName: string | null; rooms: any[] }[] = []
+  for (let i = 0; i < rows.length; i++) {
+    if (assigned[i]) continue
+    const group = [rows[i]]
+    assigned[i] = true
+    for (let j = i + 1; j < rows.length; j++) {
+      if (assigned[j]) continue
+      if (distM(rows[i], rows[j]) <= 60) { group.push(rows[j]); assigned[j] = true }
+    }
+    const buildingName = group.length > 1
+      ? sanitizeFolderName(rows[i].lat && rows[i].lng
+          ? `Tòa ${(+rows[i].lat).toFixed(4)},${(+rows[i].lng).toFixed(4)}`
+          : `Tòa ${rows[i].host_id || i}`)
+      : null
+    groups.push({ buildingName, rooms: group })
+  }
+  return groups
 }
 
 // ---------------------------------------------------------------- Orchestrator
@@ -296,39 +368,57 @@ export async function runGoogle(cfg: GoogleConfig, onProgress: (stage: string, d
     // folder phong da co duoi master (lay 1 lan de reuse + dedup)
     const masterChildren = await listChildFolders(drive, masterId)
 
-    // moi PHONG = 1 folder con (ten phong + #room_id), cot "folder ảnh (Drive)" = link folder do
+    // nhom phong theo toa (khoang cach ≤60m) -> moi toa 1 folder cha
+    const groups = groupByBuilding(rows)
     const tasks: { folderId: string; url: string; name: string }[] = []
     let pi = 0
     onProgress('Drive: tạo folder phòng', 0, rows.length)
-    await pool(rows, FOLDER_CONCURRENCY, async (r) => {
-      const imgs = imagesOf(r)
-      if (!imgs.length) { pi++; return }
-      const folderName = sanitizeFolderName(`${r.name || 'phòng'} #${r.room_id}`)
-      let folderId = masterChildren.get(folderName)
-      let existing = new Set<string>()
-      if (!folderId) { folderId = await createFolder(drive, folderName, masterId); folders++ }
-      else existing = await listFileNames(drive, folderId)
-      r.__driveLink = folderLink(folderId)
-      imgs.forEach((u, k) => {
-        const name = imageName(u, k + 1)
-        if (existing.has(name)) { skipped++; return }
-        tasks.push({ folderId: folderId!, url: u, name })
+
+    for (const grp of groups) {
+      // xac dinh folder cha: neu co nhieu phong thi tao building folder, 1 phong thi dung master
+      let parentId = masterId
+      if (grp.buildingName) {
+        let bid = masterChildren.get(grp.buildingName)
+        if (!bid) { bid = await createFolder(drive, grp.buildingName, masterId); folders++ }
+        parentId = bid
+      }
+      const parentChildren = grp.buildingName ? await listChildFolders(drive, parentId) : masterChildren
+
+      await pool(grp.rooms, FOLDER_CONCURRENCY, async (r) => {
+        const imgs = imagesOf(r)
+        if (!imgs.length) { pi++; return }
+        const folderName = sanitizeFolderName(`${r.name || 'phòng'} #${r.room_id}`)
+        let folderId = parentChildren.get(folderName)
+        let existing = new Set<string>()
+        if (!folderId) { folderId = await createFolder(drive, folderName, parentId); folders++ }
+        else existing = await listFileNames(drive, folderId)
+        r.__driveLink = folderLink(folderId)
+        imgs.forEach((u, k) => {
+          const name = imageName(u, k + 1)
+          if (existing.has(name)) { skipped++; return }
+          tasks.push({ folderId: folderId!, url: u, name })
+        })
+        pi++
+        if (pi % 5 === 0 || pi === rows.length) onProgress('Drive: tạo folder phòng', pi, rows.length)
       })
-      pi++
-      if (pi % 5 === 0 || pi === rows.length) onProgress('Drive: tạo folder phòng', pi, rows.length)
-    })
+    }
 
     const total = tasks.length
     let fatal = ''
     onProgress('Drive: upload ảnh', 0, total)
     await pool(tasks, UPLOAD_CONCURRENCY, async (t) => {
       if (fatal) return
-      try { await uploadImage(drive, t.folderId, t.url, t.name); uploaded++ }
-      catch (e: any) {
-        failed++
-        if (!firstError) firstError = gErr(e)
-        if (isFatalDrive(e)) fatal = gErr(e)
+      let ok = false
+      let lastErr: any
+      for (let attempt = 0; attempt < 3 && !fatal; attempt++) {
+        try { await uploadImage(drive, t.folderId, t.url, t.name); ok = true; break }
+        catch (e: any) {
+          lastErr = e
+          if (isFatalDrive(e)) { fatal = gErr(e); break }
+          await sleep(500 * (attempt + 1))
+        }
       }
+      if (ok) { uploaded++ } else { failed++; if (!firstError) firstError = gErr(lastErr) }
       const seen = uploaded + failed
       if (seen % 5 === 0 || seen === total) onProgress(`Drive: upload ảnh${failed ? ` (lỗi ${failed})` : ''}`, seen, total)
     })

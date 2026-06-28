@@ -160,6 +160,7 @@ def from_details(meta):
         "images":[],
         "location_descriptions":[],
         "highlights":[],
+        "sleeping_arrangements": [],
     }
     data["is_guest_favorite"] = False
 
@@ -235,7 +236,13 @@ def from_details(meta):
                     data["highlights"].append(highliting)
             case "PdpDescriptionSection":
                 data["description"]=  utils.get_nested_value(section,"section.htmlDescription.htmlText","")
-            case "AmenitiesSection":  
+            case "SleepingArrangementSection":
+                for item in utils.get_nested_value(section,"section.arrangementDetails",[]):
+                    data["sleeping_arrangements"].append({
+                        "title": item.get("title",""),
+                        "beds": [item.get("subtitle","")] if item.get("subtitle") else [],
+                    })
+            case "AmenitiesSection":
                 for amenityGroupRaw in utils.get_nested_value(meta,"data.node.pdpPresentation.amenities.seeAllAmenitiesGroups",[]):
                     amenityGroup={
                         "title": amenityGroupRaw.get("title",""),

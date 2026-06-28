@@ -29,6 +29,8 @@ export default function App() {
   const [progress, setProgress] = useState({ page: 0, total: 0, count: 0, phase: '' })
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [activeSession, setActiveSession] = useState<number | null>(null)
+  const [doneSignal, setDoneSignal] = useState(0)
+  const [detailCache, setDetailCache] = useState<Record<string, RoomDetailData>>({})
   const logRef = useRef<HTMLDivElement>(null)
 
   // room detail drawer
@@ -67,6 +69,7 @@ export default function App() {
         case 'done':
           pushLog(`Hoàn tất — ${ev.count} phòng`)
           setRunning(false)
+          setDoneSignal((s) => s + 1)
           break
         case 'error':
           pushLog(`Lỗi: ${ev.msg}`)
@@ -132,8 +135,10 @@ export default function App() {
     setDetailLoading(true)
     const res = await window.api.getDetail({ room_id: room.room_id, domain: config.domain, lang: config.lang })
     setDetailLoading(false)
-    if (res?.ok) setDetail(res.detail)
-    else setDetailError(res?.error || 'Không lấy được chi tiết')
+    if (res?.ok) {
+      setDetail(res.detail)
+      setDetailCache((c) => ({ ...c, [room.room_id]: res.detail }))
+    } else setDetailError(res?.error || 'Không lấy được chi tiết')
   }
 
   const sameBuilding = useMemo(() => {
@@ -210,9 +215,12 @@ export default function App() {
           </>
         ) : view === 'saved' ? (
           <SavedView sessions={sessions} onOpen={openSession} onDelete={removeSession} />
-        ) : (
-          <GooglePanel rooms={rooms} location={config.location} />
-        )}
+        ) : null}
+
+        {/* GooglePanel luôn mount để auto-save hoạt động kể cả khi đang ở tab khác */}
+        <div style={{ display: view === 'google' ? undefined : 'none' }}>
+          <GooglePanel rooms={rooms} location={config.location} doneSignal={doneSignal} detailCache={detailCache} />
+        </div>
       </main>
 
       {selected && (

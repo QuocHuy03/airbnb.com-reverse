@@ -88,7 +88,7 @@ export function SearchForm({ config, setConfig, running }: Props) {
 
       <label className="toggle">
         <input type="checkbox" checked={config.with_host} disabled={running} onChange={(e) => up({ with_host: e.target.checked })} />
-        <span>Lấy thông tin host (tên + ảnh + link) — chậm hơn, +1 request/phòng. <b>Số điện thoại không lấy được</b> (Airbnb ẩn).</span>
+        <span>Lấy thông tin host (tên + ảnh + link) — chậm hơn, +1 request/phòng.</span>
       </label>
     </div>
   )

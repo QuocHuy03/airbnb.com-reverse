@@ -11,19 +11,18 @@ export type ScrapeEvent =
   | { type: 'done'; count: number }
   | { type: 'error'; msg: string }
 
-function pythonBin(): string {
-  // Windows dung 'python', cac he khac thu 'python3'
-  return process.platform === 'win32' ? 'python' : 'python3'
-}
-
-function scriptPath(file: string): string {
-  // dev: <root>/python/<file> ; packaged: resources/python/<file>
-  const packaged = join(process.resourcesPath, 'python', file)
-  if (app.isPackaged && existsSync(packaged)) return packaged
-  return join(app.getAppPath(), 'python', file)
-}
-function enginePath(): string {
-  return scriptPath('engine.py')
+/** Trả về [cmd, args[]] để spawn engine hoặc detail.
+ *  Packaged: dùng .exe đã compile bằng PyInstaller (không cần Python trên máy user).
+ *  Dev: dùng python + script .py bình thường. */
+function resolvePy(name: 'engine' | 'detail'): { cmd: string; args: string[] } {
+  if (app.isPackaged) {
+    const exe = join(process.resourcesPath, 'python-dist', `${name}.exe`)
+    if (existsSync(exe)) return { cmd: exe, args: [] }
+  }
+  // dev mode — script .py
+  const script = join(app.getAppPath(), 'python', `${name}.py`)
+  const py = process.platform === 'win32' ? 'python' : 'python3'
+  return { cmd: py, args: [script] }
 }
 
 let current: ChildProcessWithoutNullStreams | null = null
@@ -38,8 +37,8 @@ export function cancelScrape(): void {
 export function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promise<void> {
   return new Promise((resolve) => {
     cancelScrape()
-    const proc = spawn(pythonBin(), [enginePath(), JSON.stringify(config)], {
-      cwd: app.getAppPath(),
+    const { cmd, args } = resolvePy('engine')
+    const proc = spawn(cmd, [...args, JSON.stringify(config)], {
       env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
     })
     current = proc
@@ -85,8 +84,8 @@ export function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promi
 /** Lay chi tiet 1 phong (chay python/detail.py, tra 1 JSON object). */
 export function runDetail(config: any): Promise<any> {
   return new Promise((resolve) => {
-    const proc = spawn(pythonBin(), [scriptPath('detail.py'), JSON.stringify(config)], {
-      cwd: app.getAppPath(),
+    const { cmd, args } = resolvePy('detail')
+    const proc = spawn(cmd, [...args, JSON.stringify(config)], {
       env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
     })
     let out = ''

@@ -54,6 +54,21 @@ export function RoomDetail({ room, detail, loading, error, sameBuilding, onClose
                 </div>
               )}
 
+              {/* sleeping arrangements */}
+              {detail.sleeping_arrangements?.length > 0 && (
+                <Section title="Nơi bạn sẽ ngủ nghỉ">
+                  <div className="sleeping-grid">
+                    {detail.sleeping_arrangements.map((br, i) => (
+                      <div className="bedroom-card" key={i}>
+                        <div className="bedroom-icon">🛏</div>
+                        <div className="bedroom-title">{br.title}</div>
+                        <div className="bedroom-beds muted small">{br.beds.join(' · ') || '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
               {/* price + open */}
               <div className="detail-bar">
                 <div className="detail-price">{room.price || room.price_label || 'Không có giá'}</div>

@@ -53,6 +53,7 @@ export interface RoomDetailData {
   highlights: { title: string; subtitle: string }[]
   house_rules: any
   location_descriptions: any[]
+  sleeping_arrangements: { title: string; beds: string[] }[]
   host: { name?: string; id?: string; avatar?: string; url?: string; phone?: string }
 }
 

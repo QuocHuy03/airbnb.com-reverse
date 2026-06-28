@@ -142,12 +142,10 @@ def main():
     domain=c.get("domain","www.airbnb.com.vn"); lang=c.get("lang","vi"); proxy=c.get("proxy","")
     with_host=bool(c.get("with_host"))
 
-    emit({"type":"status","msg":"Lay api_key + hash..."})
     try:
         key=api.get(proxy); h=search.fetch_stays_search_hash(proxy)
     except Exception as e:
         emit({"type":"error","msg":f"khong lay duoc key/hash: {e}"}); return
-    emit({"type":"status","msg":f"api_key={key[:8]}… hash={h[:10]}…"})
 
     rp=build_raw_params(c)
     try:

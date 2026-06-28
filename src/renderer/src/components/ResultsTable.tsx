@@ -16,6 +16,7 @@ export function ResultsTable({ rooms, onOpen, onSelect }: Props) {
       <table className="rooms">
         <thead>
           <tr>
+            <th className="stt-col">STT</th>
             <th></th>
             <th>Tên phòng</th>
             <th>Giá</th>
@@ -26,8 +27,9 @@ export function ResultsTable({ rooms, onOpen, onSelect }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rooms.map((r) => (
+          {rooms.map((r, i) => (
             <tr key={r.room_id} className="room-row" onClick={() => onSelect(r)}>
+              <td className="stt-col">{i + 1}</td>
               <td className="thumb-cell">
                 {r.image ? <img className="thumb" src={r.image} loading="lazy" /> : <div className="thumb ph" />}
               </td>

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Room } from '../types'
+import { Room, RoomDetailData } from '../types'
 import { Icon } from './Icon'
 
 interface Props {
   rooms: Room[]
   location: string
+  doneSignal?: number
+  detailCache?: Record<string, RoomDetailData>
 }
 
 interface GResult {
@@ -36,7 +38,7 @@ function FilePick({ label, hint, path, onPick }: { label: string; hint: string; 
   )
 }
 
-export function GooglePanel({ rooms, location }: Props) {
+export function GooglePanel({ rooms, location, doneSignal, detailCache }: Props) {
   const [sheetCred, setSheetCred] = useState('')
   const [oauthClient, setOauthClient] = useState('')
   const [oauthEmail, setOauthEmail] = useState('')
@@ -48,11 +50,13 @@ export function GooglePanel({ rooms, location }: Props) {
   const [driveParentId, setDriveParentId] = useState('')
   const [doSheet, setDoSheet] = useState(true)
   const [doDrive, setDoDrive] = useState(true)
+  const [autoSave, setAutoSave] = useState(false)
 
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState('')
   const [result, setResult] = useState<GResult | null>(null)
   const loaded = useRef(false)
+  const lastSignal = useRef(0)
 
   // load persisted config
   useEffect(() => {
@@ -65,6 +69,7 @@ export function GooglePanel({ rooms, location }: Props) {
         setDriveParentId(s.driveParentId || '')
         if (typeof s.doSheet === 'boolean') setDoSheet(s.doSheet)
         if (typeof s.doDrive === 'boolean') setDoDrive(s.doDrive)
+        if (typeof s.autoSave === 'boolean') setAutoSave(s.autoSave)
       }
       loaded.current = true
     })
@@ -78,9 +83,9 @@ export function GooglePanel({ rooms, location }: Props) {
   useEffect(() => {
     if (!loaded.current) return
     window.api.saveSettings('google', {
-      sheetCred, oauthClient, sheetUrl, sheetTab, writeMode, masterFolderName, driveParentId, doSheet, doDrive
+      sheetCred, oauthClient, sheetUrl, sheetTab, writeMode, masterFolderName, driveParentId, doSheet, doDrive, autoSave
     })
-  }, [sheetCred, oauthClient, sheetUrl, sheetTab, writeMode, masterFolderName, driveParentId, doSheet, doDrive])
+  }, [sheetCred, oauthClient, sheetUrl, sheetTab, writeMode, masterFolderName, driveParentId, doSheet, doDrive, autoSave])
 
   // oauth status
   useEffect(() => {
@@ -97,13 +102,28 @@ export function GooglePanel({ rooms, location }: Props) {
     else alert('Đăng nhập lỗi: ' + (res?.error || '?'))
   }
 
+  // auto-save khi cào xong (giống go2joy)
+  useEffect(() => {
+    if (!doneSignal || doneSignal === lastSignal.current) return
+    lastSignal.current = doneSignal
+    if (!autoSave || running) return
+    if (doSheet && (!sheetCred || !sheetUrl.trim())) return
+    if (doDrive && (!oauthClient || !oauthEmail)) return
+    run()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneSignal])
+
   const run = async () => {
     if (!rooms.length) { alert('Chưa có phòng nào để lưu. Cào dữ liệu trước.'); return }
     if (doSheet && (!sheetCred || !sheetUrl.trim())) { alert('Cần file service account + link Sheet.'); return }
     if (doDrive && (!oauthClient || !oauthEmail)) { alert('Cần đăng nhập Google Drive (OAuth) trước.'); return }
     setRunning(true); setResult(null); setProgress('Đang chuẩn bị…')
+    const rowsWithDetail = rooms.map((r) => {
+      const d = detailCache?.[r.room_id]
+      return d ? { ...r, sleeping_arrangements: d.sleeping_arrangements } : r
+    })
     const r = await window.api.runGoogle({
-      rows: rooms, location,
+      rows: rowsWithDetail, location,
       sheetCredPath: sheetCred, oauthClientPath: oauthClient,
       sheetUrl, sheetTab, writeMode, masterFolderName, driveParentId, doSheet, doDrive
     })
@@ -156,6 +176,7 @@ export function GooglePanel({ rooms, location }: Props) {
         <div className="section-label">Tuỳ chọn lưu</div>
         <label className="toggle"><input type="checkbox" checked={doSheet} onChange={(e) => setDoSheet(e.target.checked)} /><span>Ghi bảng vào Google Sheet (đầy đủ cột)</span></label>
         <label className="toggle"><input type="checkbox" checked={doDrive} onChange={(e) => setDoDrive(e.target.checked)} /><span>Upload ảnh lên Drive (mỗi phòng 1 folder, tự bỏ ảnh trùng)</span></label>
+        <label className="toggle"><input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} /><span><b>Tự động lưu</b> ngay sau khi cào xong</span></label>
 
         <div className="action-row">
           <button className="btn primary" disabled={running || !rooms.length} onClick={run}>

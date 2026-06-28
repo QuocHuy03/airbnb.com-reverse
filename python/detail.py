@@ -68,6 +68,7 @@ def main():
                        for h in d.get("highlights",[])],
         "house_rules": d.get("house_rules",{}),
         "location_descriptions": d.get("location_descriptions",[]),
+        "sleeping_arrangements": d.get("sleeping_arrangements",[]),
         "host": d.get("host",{}),
     }
     print(json.dumps({"ok":True,"detail":detail}, ensure_ascii=False))
