@@ -107,7 +107,7 @@ export async function runScrape(config: any, onEvent: (e: ScrapeEvent) => void):
         seen.add(id)
         if (nm) seenNames.add(nm)
         totalCount++
-        onEvent(e)
+        onEvent({ ...e, data: { ...e.data, _location: loc } })
       } else if (e.type === 'done') {
         // phat done sau khi tat ca locations xong (xu ly ben duoi)
       } else {

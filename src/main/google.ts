@@ -29,7 +29,7 @@ const SHEET_HEADERS = [
 
 function rowToValues(r: any, location: string): string[] {
   return [
-    location || '',
+    r._location || location || '',
     r.name || '',
     r._bedroom_name || '',
     r._bedroom_beds || '',
