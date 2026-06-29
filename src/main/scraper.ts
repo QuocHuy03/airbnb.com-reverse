@@ -26,19 +26,22 @@ function resolvePy(name: 'engine' | 'detail'): { cmd: string; args: string[] } {
 }
 
 let current: ChildProcessWithoutNullStreams | null = null
+let cancelled = false
 
 export function cancelScrape(): void {
+  cancelled = true
   if (current) {
     try { current.kill() } catch { /* ignore */ }
     current = null
   }
 }
 
-export function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promise<void> {
+/** Spawn 1 engine process cho 1 location + config. */
+function runOneLoc(cfg: any, onEvent: (e: ScrapeEvent) => void): Promise<void> {
   return new Promise((resolve) => {
-    cancelScrape()
+    if (cancelled) { resolve(); return }
     const { cmd, args } = resolvePy('engine')
-    const proc = spawn(cmd, [...args, JSON.stringify(config)], {
+    const proc = spawn(cmd, [...args, JSON.stringify(cfg)], {
       env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }
     })
     current = proc
@@ -52,11 +55,8 @@ export function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promi
         const line = buf.slice(0, nl).trim()
         buf = buf.slice(nl + 1)
         if (!line) continue
-        try {
-          onEvent(JSON.parse(line) as ScrapeEvent)
-        } catch {
-          onEvent({ type: 'status', msg: line })
-        }
+        try { onEvent(JSON.parse(line) as ScrapeEvent) }
+        catch { onEvent({ type: 'status', msg: line }) }
       }
     })
 
@@ -68,17 +68,57 @@ export function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promi
 
     proc.on('error', (err) => {
       onEvent({ type: 'error', msg: 'Khong chay duoc Python: ' + err.message })
-      current = null
-      resolve()
+      current = null; resolve()
     })
     proc.on('close', () => {
       if (buf.trim()) {
         try { onEvent(JSON.parse(buf.trim()) as ScrapeEvent) } catch { /* ignore */ }
       }
-      current = null
-      resolve()
+      current = null; resolve()
     })
   })
+}
+
+export async function runScrape(config: any, onEvent: (e: ScrapeEvent) => void): Promise<void> {
+  cancelled = false
+  // split nhieu location cach nhau ; hoac newline
+  const locations = (config.location as string)
+    .split(/;|\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  const seen = new Set<string>()
+  const seenNames = new Set<string>()
+  let totalCount = 0
+
+  for (let i = 0; i < locations.length; i++) {
+    if (cancelled) break
+    const loc = locations[i]
+    const cfg = { ...config, location: loc }
+    if (locations.length > 1) onEvent({ type: 'status', msg: `[${i + 1}/${locations.length}] ${loc}` })
+
+    // wrap onEvent: dedup room events across locations by room_id + name
+    const wrap = (e: ScrapeEvent) => {
+      if (e.type === 'room') {
+        const id = e.data?.room_id
+        const nm = (e.data?.name || '').trim().toLowerCase()
+        if (!id || seen.has(id)) return
+        if (nm && seenNames.has(nm)) return
+        seen.add(id)
+        if (nm) seenNames.add(nm)
+        totalCount++
+        onEvent(e)
+      } else if (e.type === 'done') {
+        // phat done sau khi tat ca locations xong (xu ly ben duoi)
+      } else {
+        onEvent(e)
+      }
+    }
+
+    await runOneLoc(cfg, wrap)
+  }
+
+  if (!cancelled) onEvent({ type: 'done', count: totalCount })
 }
 
 /** Lay chi tiet 1 phong (chay python/detail.py, tra 1 JSON object). */

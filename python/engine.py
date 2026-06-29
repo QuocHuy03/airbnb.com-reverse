@@ -182,57 +182,6 @@ def search_range(key, h, c, price_min, price_max, mp, seen, seen_names, rooms, d
     page_offset_ref[0] += len(cursors)
 
 
-def run_one_location(key, h, c, price_ranges, mp, seen, seen_names, rooms, domain, with_host,
-                     total_pages_ref, page_offset_ref):
-    """Chay search cho 1 location (co the chia nhieu price_ranges)."""
-    if price_ranges:
-        for rng in price_ranges:
-            pmin = rng.get("min") or None
-            pmax = rng.get("max") or None
-            label = f"{pmin or 0:,}-{pmax or '∞'}"
-            emit({"type":"status","msg":f"[{c['location']}] Tìm khoảng giá {label}..."})
-            search_range(key,h,c,pmin,pmax,mp,seen,seen_names,rooms,domain,with_host,
-                         total_pages_ref,page_offset_ref)
-    else:
-        rp=build_raw_params(c)
-        try:
-            data=call(key,h,c,rp,"")
-        except Exception as e:
-            emit({"type":"status","msg":f"[{c['location']}] search loi: {str(e)[:80]}"}); return
-        pag=GV(data,"data.presentation.staysSearch.results.paginationInfo",{})
-        cursors=pag.get("pageCursors",[]) or [""]
-        if mp: cursors=cursors[:mp]
-        total_pages_ref[0]+=len(cursors)
-        emit({"type":"meta","pages":total_pages_ref[0],"location":c["location"]})
-
-        def collect(d,page_abs):
-            def walk(o):
-                if isinstance(o,dict):
-                    if o.get("__typename")=="StaySearchResult":
-                        rec=extract(o,domain)
-                        nm=(rec.get("name") or "").strip().lower()
-                        if rec["room_id"] and rec["room_id"] not in seen and (not nm or nm not in seen_names):
-                            seen.add(rec["room_id"])
-                            if nm: seen_names.add(nm)
-                            if not with_host:
-                                emit({"type":"room","data":rec})
-                            rooms.append(rec)
-                    for v in o.values(): walk(v)
-                elif isinstance(o,list):
-                    for v in o: walk(v)
-            walk(d)
-            emit({"type":"progress","page":page_abs,"total_pages":total_pages_ref[0],"count":len(rooms)})
-
-        collect(data, page_offset_ref[0]+1)
-        for i,cur in enumerate(cursors[1:],2):
-            try:
-                collect(call(key,h,c,rp,cur), page_offset_ref[0]+i)
-            except Exception as e:
-                emit({"type":"status","msg":f"trang {i} loi: {str(e)[:60]}"})
-            time.sleep(0.5)
-        page_offset_ref[0]+=len(cursors)
-
-
 def main():
     try:
         c=json.loads(sys.argv[1]) if len(sys.argv)>1 else {}
@@ -250,21 +199,55 @@ def main():
     except Exception as e:
         emit({"type":"error","msg":f"khong lay duoc key/hash: {e}"}); return
 
-    # nhieu location cach nhau ;
-    raw_loc=c.get("location","")
-    locations=[l.strip() for l in raw_loc.replace("\n",";").split(";") if l.strip()]
-    if not locations: locations=[raw_loc]
-
     price_ranges = c.get("price_ranges") or []
     seen=set(); seen_names=set(); rooms=[]
     total_pages_ref=[0]; page_offset_ref=[0]
 
-    for loc in locations:
-        cfg=dict(c); cfg["location"]=loc
-        if len(locations)>1:
-            emit({"type":"status","msg":f"--- Địa điểm: {loc} ---"})
-        run_one_location(key,h,cfg,price_ranges,mp,seen,seen_names,rooms,domain,with_host,
+    if price_ranges:
+        for rng in price_ranges:
+            pmin = rng.get("min") or None
+            pmax = rng.get("max") or None
+            label = f"{pmin or 0:,}-{pmax or '∞'}"
+            emit({"type":"status","msg":f"Tìm khoảng giá {label}..."})
+            search_range(key,h,c,pmin,pmax,mp,seen,seen_names,rooms,domain,with_host,
                          total_pages_ref,page_offset_ref)
+    else:
+        rp=build_raw_params(c)
+        try:
+            data=call(key,h,c,rp,"")
+        except Exception as e:
+            emit({"type":"error","msg":f"search loi: {e}"}); return
+        pag=GV(data,"data.presentation.staysSearch.results.paginationInfo",{})
+        cursors=pag.get("pageCursors",[]) or [""]
+        if mp: cursors=cursors[:mp]
+        total_pages_ref[0]=len(cursors)
+        emit({"type":"meta","pages":len(cursors),"location":c["location"]})
+
+        def collect(d,page):
+            def walk(o):
+                if isinstance(o,dict):
+                    if o.get("__typename")=="StaySearchResult":
+                        rec=extract(o,domain)
+                        nm=(rec.get("name") or "").strip().lower()
+                        if rec["room_id"] and rec["room_id"] not in seen and (not nm or nm not in seen_names):
+                            seen.add(rec["room_id"])
+                            if nm: seen_names.add(nm)
+                            if not with_host:
+                                emit({"type":"room","data":rec})
+                            rooms.append(rec)
+                    for v in o.values(): walk(v)
+                elif isinstance(o,list):
+                    for v in o: walk(v)
+            walk(d)
+            emit({"type":"progress","page":page,"total_pages":len(cursors),"count":len(rooms)})
+
+        collect(data,1)
+        for i,cur in enumerate(cursors[1:],2):
+            try:
+                collect(call(key,h,c,rp,cur),i)
+            except Exception as e:
+                emit({"type":"status","msg":f"trang {i} loi: {str(e)[:60]}"})
+            time.sleep(0.5)
 
     if with_host:
         emit({"type":"status","msg":f"Lay host cho {len(rooms)} phong..."})
