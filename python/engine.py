@@ -131,7 +131,7 @@ def call(key,h,c,rp,cursor):
         adults=0,children=0,infants=0,min_bedrooms=0,min_beds=0,min_bathrooms=0,
         language=c.get("lang","vi"),proxy_url=c.get("proxy",""),hash=h,raw_params=rp)
 
-def search_range(key, h, c, price_min, price_max, mp, seen, rooms, domain, with_host,
+def search_range(key, h, c, price_min, price_max, mp, seen, seen_names, rooms, domain, with_host,
                   total_pages_ref, page_offset_ref):
     """Chay 1 search voi khoang gia [price_min, price_max]. Cap nhat seen+rooms in-place."""
     cfg = dict(c)
@@ -159,8 +159,10 @@ def search_range(key, h, c, price_min, price_max, mp, seen, rooms, domain, with_
             if isinstance(o,dict):
                 if o.get("__typename")=="StaySearchResult":
                     rec=extract(o,domain)
-                    if rec["room_id"] and rec["room_id"] not in seen:
+                    nm=(rec.get("name") or "").strip().lower()
+                    if rec["room_id"] and rec["room_id"] not in seen and (not nm or nm not in seen_names):
                         seen.add(rec["room_id"])
+                        if nm: seen_names.add(nm)
                         if not with_host:
                             emit({"type":"room","data":rec})
                         rooms.append(rec)
@@ -180,7 +182,7 @@ def search_range(key, h, c, price_min, price_max, mp, seen, rooms, domain, with_
     page_offset_ref[0] += len(cursors)
 
 
-def run_one_location(key, h, c, price_ranges, mp, seen, rooms, domain, with_host,
+def run_one_location(key, h, c, price_ranges, mp, seen, seen_names, rooms, domain, with_host,
                      total_pages_ref, page_offset_ref):
     """Chay search cho 1 location (co the chia nhieu price_ranges)."""
     if price_ranges:
@@ -189,7 +191,7 @@ def run_one_location(key, h, c, price_ranges, mp, seen, rooms, domain, with_host
             pmax = rng.get("max") or None
             label = f"{pmin or 0:,}-{pmax or '∞'}"
             emit({"type":"status","msg":f"[{c['location']}] Tìm khoảng giá {label}..."})
-            search_range(key,h,c,pmin,pmax,mp,seen,rooms,domain,with_host,
+            search_range(key,h,c,pmin,pmax,mp,seen,seen_names,rooms,domain,with_host,
                          total_pages_ref,page_offset_ref)
     else:
         rp=build_raw_params(c)
@@ -208,8 +210,10 @@ def run_one_location(key, h, c, price_ranges, mp, seen, rooms, domain, with_host
                 if isinstance(o,dict):
                     if o.get("__typename")=="StaySearchResult":
                         rec=extract(o,domain)
-                        if rec["room_id"] and rec["room_id"] not in seen:
+                        nm=(rec.get("name") or "").strip().lower()
+                        if rec["room_id"] and rec["room_id"] not in seen and (not nm or nm not in seen_names):
                             seen.add(rec["room_id"])
+                            if nm: seen_names.add(nm)
                             if not with_host:
                                 emit({"type":"room","data":rec})
                             rooms.append(rec)
@@ -252,14 +256,14 @@ def main():
     if not locations: locations=[raw_loc]
 
     price_ranges = c.get("price_ranges") or []
-    seen=set(); rooms=[]
+    seen=set(); seen_names=set(); rooms=[]
     total_pages_ref=[0]; page_offset_ref=[0]
 
     for loc in locations:
         cfg=dict(c); cfg["location"]=loc
         if len(locations)>1:
             emit({"type":"status","msg":f"--- Địa điểm: {loc} ---"})
-        run_one_location(key,h,cfg,price_ranges,mp,seen,rooms,domain,with_host,
+        run_one_location(key,h,cfg,price_ranges,mp,seen,seen_names,rooms,domain,with_host,
                          total_pages_ref,page_offset_ref)
 
     if with_host:
