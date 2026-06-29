@@ -13,11 +13,13 @@ export function SearchForm({ config, setConfig, running }: Props) {
   return (
     <div className="card form">
       <div className="form-grid">
-        <Field label="Địa điểm" wide>
-          <input
+        <Field label="Địa điểm (nhiều địa điểm cách nhau dấu ;)" wide>
+          <textarea
+            rows={2}
             value={config.location}
             disabled={running}
-            placeholder="vd: Hội An, Việt Nam"
+            placeholder={"vd: Hội An, Việt Nam; Đà Nẵng, Việt Nam; Hà Nội, Việt Nam"}
+            style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
             onChange={(e) => up({ location: e.target.value })}
           />
         </Field>
