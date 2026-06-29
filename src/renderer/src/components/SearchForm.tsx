@@ -90,6 +90,53 @@ export function SearchForm({ config, setConfig, running }: Props) {
         <input type="checkbox" checked={config.with_host} disabled={running} onChange={(e) => up({ with_host: e.target.checked })} />
         <span>Lấy thông tin host (tên + ảnh + link) — chậm hơn, +1 request/phòng.</span>
       </label>
+
+      <PriceRanges ranges={config.price_ranges || []} disabled={running} onChange={(r) => up({ price_ranges: r })} />
+    </div>
+  )
+}
+
+function PriceRanges({ ranges, disabled, onChange }: {
+  ranges: { min: number; max: number }[]
+  disabled: boolean
+  onChange: (r: { min: number; max: number }[]) => void
+}) {
+  const num = (v: string) => (v === '' ? 0 : Number(v))
+  const add = () => onChange([...ranges, { min: 0, max: 0 }])
+  const remove = (i: number) => onChange(ranges.filter((_, j) => j !== i))
+  const upRange = (i: number, field: 'min' | 'max', v: string) => {
+    const copy = ranges.map((r, j) => j === i ? { ...r, [field]: num(v) } : r)
+    onChange(copy)
+  }
+
+  const PRESETS = [
+    { label: '3 khoảng (0–1M / 1–3M / 3M+)', ranges: [{ min: 0, max: 1000000 }, { min: 1000000, max: 3000000 }, { min: 3000000, max: 0 }] },
+    { label: '4 khoảng (0–500k / 500k–1.5M / 1.5M–4M / 4M+)', ranges: [{ min: 0, max: 500000 }, { min: 500000, max: 1500000 }, { min: 1500000, max: 4000000 }, { min: 4000000, max: 0 }] },
+  ]
+
+  return (
+    <div className="price-ranges">
+      <div className="pr-head">
+        <span className="pr-title">Chia khoảng giá <span className="muted small">(tìm nhiều hơn ~300 kết quả)</span></span>
+        <div className="pr-actions">
+          {PRESETS.map((p) => (
+            <button key={p.label} type="button" className="btn small" disabled={disabled} onClick={() => onChange(p.ranges)}>{p.label}</button>
+          ))}
+          <button type="button" className="btn small primary" disabled={disabled} onClick={add}>+ Thêm</button>
+          {ranges.length > 0 && <button type="button" className="btn small" disabled={disabled} onClick={() => onChange([])}>Xoá hết</button>}
+        </div>
+      </div>
+      {ranges.map((r, i) => (
+        <div className="pr-row" key={i}>
+          <span className="muted small">#{i + 1}</span>
+          <input type="number" min={0} placeholder="Từ (0 = bỏ trống)" value={r.min || ''} disabled={disabled}
+            onChange={(e) => upRange(i, 'min', e.target.value)} />
+          <span className="muted">–</span>
+          <input type="number" min={0} placeholder="Đến (0 = không giới hạn)" value={r.max || ''} disabled={disabled}
+            onChange={(e) => upRange(i, 'max', e.target.value)} />
+          <button type="button" className="btn small" disabled={disabled} onClick={() => remove(i)}>✕</button>
+        </div>
+      ))}
     </div>
   )
 }

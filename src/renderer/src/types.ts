@@ -16,6 +16,7 @@ export interface ScrapeConfig {
   proxy?: string
   max_pages?: number
   with_host?: boolean
+  price_ranges?: { min: number; max: number }[]
 }
 
 export interface Room {

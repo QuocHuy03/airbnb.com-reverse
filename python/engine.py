@@ -131,35 +131,30 @@ def call(key,h,c,rp,cursor):
         adults=0,children=0,infants=0,min_bedrooms=0,min_beds=0,min_bathrooms=0,
         language=c.get("lang","vi"),proxy_url=c.get("proxy",""),hash=h,raw_params=rp)
 
-def main():
+def search_range(key, h, c, price_min, price_max, mp, seen, rooms, domain, with_host,
+                  total_pages_ref, page_offset_ref):
+    """Chay 1 search voi khoang gia [price_min, price_max]. Cap nhat seen+rooms in-place."""
+    cfg = dict(c)
+    if price_min is not None: cfg["price_min"] = price_min
+    if price_max is not None: cfg["price_max"] = price_max
+    rp = build_raw_params(cfg)
     try:
-        c=json.loads(sys.argv[1]) if len(sys.argv)>1 else {}
+        data = call(key, h, cfg, rp, "")
     except Exception as e:
-        emit({"type":"error","msg":f"bad config: {e}"}); return
-    if not c.get("location"):
-        emit({"type":"error","msg":"thieu location"}); return
+        emit({"type":"status","msg":f"search loi (range {price_min}-{price_max}): {str(e)[:80]}"}); return
+    pag = GV(data,"data.presentation.staysSearch.results.paginationInfo",{})
+    cursors = pag.get("pageCursors",[]) or [""]
+    if mp: cursors = cursors[:mp]
 
-    domain=c.get("domain","www.airbnb.com.vn"); lang=c.get("lang","vi"); proxy=c.get("proxy","")
-    with_host=bool(c.get("with_host"))
+    label = ""
+    if price_min and price_max: label = f" [{price_min:,}-{price_max:,}]"
+    elif price_min:             label = f" [{price_min:,}+]"
+    elif price_max:             label = f" [<{price_max:,}]"
 
-    try:
-        key=api.get(proxy); h=search.fetch_stays_search_hash(proxy)
-    except Exception as e:
-        emit({"type":"error","msg":f"khong lay duoc key/hash: {e}"}); return
+    total_pages_ref[0] += len(cursors)
+    emit({"type":"meta","pages":total_pages_ref[0],"location":c["location"]})
 
-    rp=build_raw_params(c)
-    try:
-        data=call(key,h,c,rp,"")
-    except Exception as e:
-        emit({"type":"error","msg":f"search loi: {e}"}); return
-    pag=GV(data,"data.presentation.staysSearch.results.paginationInfo",{})
-    cursors=pag.get("pageCursors",[]) or [""]
-    mp=int(c.get("max_pages") or 0)
-    if mp: cursors=cursors[:mp]
-    emit({"type":"meta","pages":len(cursors),"location":c["location"]})
-
-    seen=set(); rooms=[]
-    def collect(d,page):
+    def collect(d, page_abs):
         def walk(o):
             if isinstance(o,dict):
                 if o.get("__typename")=="StaySearchResult":
@@ -173,25 +168,94 @@ def main():
             elif isinstance(o,list):
                 for v in o: walk(v)
         walk(d)
-        emit({"type":"progress","page":page,"total_pages":len(cursors),"count":len(rooms)})
+        emit({"type":"progress","page":page_abs,"total_pages":total_pages_ref[0],"count":len(rooms)})
 
-    collect(data,1)
+    collect(data, page_offset_ref[0]+1)
     for i,cur in enumerate(cursors[1:],2):
         try:
-            collect(call(key,h,c,rp,cur),i)
+            collect(call(key,h,cfg,rp,cur), page_offset_ref[0]+i)
         except Exception as e:
-            emit({"type":"status","msg":f"trang {i} loi: {str(e)[:60]}"})
+            emit({"type":"status","msg":f"trang {i}{label} loi: {str(e)[:60]}"})
         time.sleep(0.5)
+    page_offset_ref[0] += len(cursors)
+
+
+def main():
+    try:
+        c=json.loads(sys.argv[1]) if len(sys.argv)>1 else {}
+    except Exception as e:
+        emit({"type":"error","msg":f"bad config: {e}"}); return
+    if not c.get("location"):
+        emit({"type":"error","msg":"thieu location"}); return
+
+    domain=c.get("domain","www.airbnb.com.vn"); lang=c.get("lang","vi"); proxy=c.get("proxy","")
+    with_host=bool(c.get("with_host"))
+    mp=int(c.get("max_pages") or 0)
+
+    try:
+        key=api.get(proxy); h=search.fetch_stays_search_hash(proxy)
+    except Exception as e:
+        emit({"type":"error","msg":f"khong lay duoc key/hash: {e}"}); return
+
+    # price_ranges: [{min,max}, ...] — neu co thi chia nhieu search
+    price_ranges = c.get("price_ranges") or []
+    seen=set(); rooms=[]
+    total_pages_ref=[0]; page_offset_ref=[0]
+
+    if price_ranges:
+        for rng in price_ranges:
+            pmin = rng.get("min") or None
+            pmax = rng.get("max") or None
+            label = f"{pmin or 0:,}-{pmax or '∞'}"
+            emit({"type":"status","msg":f"Tìm khoảng giá {label}..."})
+            search_range(key,h,c,pmin,pmax,mp,seen,rooms,domain,with_host,
+                         total_pages_ref,page_offset_ref)
+    else:
+        # search thong thuong khong chia
+        rp=build_raw_params(c)
+        try:
+            data=call(key,h,c,rp,"")
+        except Exception as e:
+            emit({"type":"error","msg":f"search loi: {e}"}); return
+        pag=GV(data,"data.presentation.staysSearch.results.paginationInfo",{})
+        cursors=pag.get("pageCursors",[]) or [""]
+        if mp: cursors=cursors[:mp]
+        total_pages_ref[0]=len(cursors)
+        emit({"type":"meta","pages":len(cursors),"location":c["location"]})
+
+        def collect(d,page):
+            def walk(o):
+                if isinstance(o,dict):
+                    if o.get("__typename")=="StaySearchResult":
+                        rec=extract(o,domain)
+                        if rec["room_id"] and rec["room_id"] not in seen:
+                            seen.add(rec["room_id"])
+                            if not with_host:
+                                emit({"type":"room","data":rec})
+                            rooms.append(rec)
+                    for v in o.values(): walk(v)
+                elif isinstance(o,list):
+                    for v in o: walk(v)
+            walk(d)
+            emit({"type":"progress","page":page,"total_pages":len(cursors),"count":len(rooms)})
+
+        collect(data,1)
+        for i,cur in enumerate(cursors[1:],2):
+            try:
+                collect(call(key,h,c,rp,cur),i)
+            except Exception as e:
+                emit({"type":"status","msg":f"trang {i} loi: {str(e)[:60]}"})
+            time.sleep(0.5)
 
     if with_host:
         emit({"type":"status","msg":f"Lay host cho {len(rooms)} phong..."})
+        total=total_pages_ref[0]
         for idx,rec in enumerate(rooms,1):
             hn,hid,pic=fetch_host(rec["room_id"],domain,lang,proxy)
             rec["host_name"]=hn; rec["host_id"]=hid; rec["host_avatar"]=pic
             rec["host_url"]=f"https://{domain}/users/show/{hid}" if hid else ""
             emit({"type":"room","data":rec})
-            emit({"type":"progress","page":len(cursors),"total_pages":len(cursors),
-                  "count":idx,"phase":"host"})
+            emit({"type":"progress","page":total,"total_pages":total,"count":idx,"phase":"host"})
             time.sleep(0.35)
 
     emit({"type":"done","count":len(rooms)})
